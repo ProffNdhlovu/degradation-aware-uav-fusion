@@ -60,15 +60,28 @@ python3 -m sdf_nav.visualize \
   --html outputs/transition_1_navigation_sim.html
 ```
 
+To train and benchmark the learned reliability layer:
+
+```bash
+python3 -m sdf_nav.train_reliability \
+  --sequence work/transition_1_aligned.npz \
+  --sequence work/transition_2_aligned.npz \
+  --sequence work/transition_3_aligned.npz \
+  --model-out work/reliability_model.npz \
+  --report-out outputs/reliability_benchmark.md
+```
+
 ## Project Layout
 
 - `src/sdf_nav/quality.py`: sensor health and reliability features.
 - `src/sdf_nav/policy.py`: degradation-aware use/down-weight/reject decisions.
+- `src/sdf_nav/ml_policy.py`: learned reliability model and feature extraction.
 - `src/sdf_nav/filters.py`: 2D baseline filter and 3D IMU-driven Kalman filter.
 - `src/sdf_nav/sim.py`: synthetic degraded sensor generator for fast iteration.
 - `src/sdf_nav/insane.py`: INSANE transition-sequence CSV adapter.
 - `src/sdf_nav/evaluate.py`: metrics for navigation performance and decisions.
 - `src/sdf_nav/visualize.py`: dependency-free SVG plot and HTML navigation replay.
+- `src/sdf_nav/train_reliability.py`: leave-one-sequence-out learned-policy benchmark.
 
 ## Current Fusion Behavior
 
@@ -80,6 +93,11 @@ For downloaded INSANE transition sensor data, the 3D path uses:
 - Innovation gates so VIO is skipped when it strongly disagrees with the predicted state.
 - UWB valid-range availability as a degradation signal. Full UWB range fusion needs
   anchor/tag calibration before range residual updates can be added safely.
+
+## Research Direction
+
+See `docs/novelty_plan.md` for the current paper-oriented contribution plan and
+`outputs/reliability_benchmark.md` for the learned reliability ablation.
 - `docs/architecture.md`: recommended model roadmap for INSANE.
 
 ## INSANE Dataset Integration Plan

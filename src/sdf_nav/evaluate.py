@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from sdf_nav.filters import ConstantVelocityKalman2D, ImuDrivenKalman3D, Measurement
+from sdf_nav.ml_policy import extract_sensor_features, load_models
 from sdf_nav.policy import DegradationAwarePolicy
 from sdf_nav.quality import gnss_quality, vio_quality
 
@@ -18,9 +19,66 @@ def rmse(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.sum((a[finite] - b[finite]) ** 2, axis=1))))
 
 
-def run_fusion(data: dict[str, np.ndarray]) -> tuple[np.ndarray, dict[str, int]]:
+def learned_decision(
+    reliability: float,
+    sensor: str,
+    reject_below: float = 0.20,
+    downweight_below: float = 0.65,
+) -> tuple[str, float, str]:
+    if sensor == "gnss":
+        # GNSS is often the only absolute reference in degraded transition segments.
+        # The learned model may down-weight it, but should not fully remove it while
+        # a fix is present.
+        if reliability < downweight_below:
+            return "downweight", min(4.0, 1.0 / max(reliability, 0.25) ** 2), "learned_weak"
+        return "use", 1.0, "learned_reliable"
+    if sensor == "vio":
+        reject_below = 0.10
+        if reliability <= reject_below:
+            return "reject", np.inf, "learned_unreliable"
+        if reliability < downweight_below:
+            return "downweight", min(9.0, 1.0 / max(reliability, 0.20) ** 2), "learned_weak"
+        return "use", 1.0, "learned_reliable"
+    if reliability <= reject_below:
+        return "reject", np.inf, "learned_unreliable"
+    if reliability < downweight_below:
+        return "downweight", 1.0 / max(reliability, 1e-3) ** 2, "learned_weak"
+    return "use", 1.0, "learned_reliable"
+
+
+def hybrid_decision(
+    sensor: str,
+    rule_action: str,
+    rule_scale: float,
+    learned_reliability: float,
+) -> tuple[str, float, str]:
+    """Use learned reliability only as a high-confidence residual correction."""
+
+    if sensor == "gnss":
+        if learned_reliability < 0.30:
+            return "downweight", min(6.0, max(rule_scale, 1.0 / max(learned_reliability, 0.20) ** 2)), "hybrid_learned_weak"
+        if learned_reliability > 0.85 and rule_action != "reject":
+            return "use", min(rule_scale, 1.5), "hybrid_learned_strong"
+        return rule_action, rule_scale, "hybrid_rule"
+
+    if sensor == "vio":
+        if learned_reliability < 0.12:
+            return "reject", np.inf, "hybrid_learned_unreliable"
+        if learned_reliability < 0.35:
+            return "downweight", min(9.0, max(rule_scale, 1.0 / max(learned_reliability, 0.20) ** 2)), "hybrid_learned_weak"
+        if learned_reliability > 0.85 and rule_action != "reject":
+            return "use", min(rule_scale, 1.5), "hybrid_learned_strong"
+        return rule_action, rule_scale, "hybrid_rule"
+
+    return rule_action, rule_scale, "hybrid_rule"
+
+
+def run_fusion(
+    data: dict[str, np.ndarray],
+    reliability_models: dict[str, object] | None = None,
+) -> tuple[np.ndarray, dict[str, int]]:
     if data["truth"].shape[1] == 3 and "imu_accel" in data:
-        return run_fusion_3d(data)
+        return run_fusion_3d(data, reliability_models=reliability_models)
 
     t = data["t"]
     truth = data["truth"]
@@ -71,13 +129,21 @@ def run_fusion(data: dict[str, np.ndarray]) -> tuple[np.ndarray, dict[str, int]]
     return fused, dict(decisions)
 
 
-def run_fusion_3d(data: dict[str, np.ndarray]) -> tuple[np.ndarray, dict[str, int]]:
+def run_fusion_3d(
+    data: dict[str, np.ndarray],
+    reliability_models: dict[str, object] | None = None,
+) -> tuple[np.ndarray, dict[str, int]]:
     t = data["t"]
     truth = data["truth"]
     kf = ImuDrivenKalman3D(initial_position=truth[0])
     policy = DegradationAwarePolicy()
     fused = np.zeros_like(truth)
     decisions: Counter[str] = Counter()
+    learned_features = (
+        {sensor: extract_sensor_features(data, sensor) for sensor in reliability_models}
+        if reliability_models
+        else {}
+    )
 
     for i in range(len(t)):
         dt = 0.125 if i == 0 else t[i] - t[i - 1]
@@ -92,13 +158,25 @@ def run_fusion_3d(data: dict[str, np.ndarray]) -> tuple[np.ndarray, dict[str, in
                 bool(data["fix_ok"][i]),
                 gnss_innov,
             )
-            _, decision = policy.gate_measurement(
+            _, rule_decision = policy.gate_measurement(
                 Measurement(data["gnss"][i, :2], np.eye(2), "gnss"),
                 quality,
             )
-            decisions[f"{decision.sensor}:{decision.action}:{decision.reason}"] += 1
-            if decision.action != "reject":
-                r = np.diag(np.clip(data["gnss_cov"][i], 0.25, 16.0)) * decision.covariance_scale
+            if reliability_models and "gnss" in reliability_models:
+                reliability = float(reliability_models["gnss"].predict_proba(learned_features["gnss"][i : i + 1])[0])
+                action, covariance_scale, reason = hybrid_decision(
+                    "gnss",
+                    rule_decision.action,
+                    rule_decision.covariance_scale,
+                    reliability,
+                )
+                decisions[f"gnss:{action}:{reason}"] += 1
+            else:
+                action = rule_decision.action
+                covariance_scale = rule_decision.covariance_scale
+                decisions[f"{rule_decision.sensor}:{rule_decision.action}:{rule_decision.reason}"] += 1
+            if action != "reject":
+                r = np.diag(np.clip(data["gnss_cov"][i], 0.25, 16.0)) * covariance_scale
                 kf.update_position(data["gnss"][i], r)
         else:
             decisions["gnss:reject:missing"] += 1
@@ -114,14 +192,26 @@ def run_fusion_3d(data: dict[str, np.ndarray]) -> tuple[np.ndarray, dict[str, in
                 float(data["tracking_age"][i]),
                 vio_innov,
             )
-            _, decision = policy.gate_measurement(
+            _, rule_decision = policy.gate_measurement(
                 Measurement(data["vio"][i, :2], np.eye(2), "vio"),
                 quality,
             )
-            decisions[f"{decision.sensor}:{decision.action}:{decision.reason}"] += 1
-            if decision.action != "reject":
+            if reliability_models and "vio" in reliability_models:
+                reliability = float(reliability_models["vio"].predict_proba(learned_features["vio"][i : i + 1])[0])
+                action, covariance_scale, reason = hybrid_decision(
+                    "vio",
+                    rule_decision.action,
+                    rule_decision.covariance_scale,
+                    reliability,
+                )
+                decisions[f"vio:{action}:{reason}"] += 1
+            else:
+                action = rule_decision.action
+                covariance_scale = rule_decision.covariance_scale
+                decisions[f"{rule_decision.sensor}:{rule_decision.action}:{rule_decision.reason}"] += 1
+            if action != "reject":
                 velocity_var = np.maximum(data.get("vio_velocity_var", np.full_like(data["vio_velocity"], 2.0))[i], 0.05)
-                r = np.diag(velocity_var) * decision.covariance_scale
+                r = np.diag(velocity_var) * covariance_scale
                 kf.update_velocity(data["vio_velocity"][i], r)
 
                 if np.isfinite(data["vio"][i]).all():
@@ -137,7 +227,7 @@ def run_fusion_3d(data: dict[str, np.ndarray]) -> tuple[np.ndarray, dict[str, in
                     innovation_scale = max(1.0, (position_innov / 3.0) ** 2)
                     kf.update_position(
                         data["vio"][i],
-                        np.diag(position_var) * decision.covariance_scale * innovation_scale,
+                        np.diag(position_var) * covariance_scale * innovation_scale,
                     )
         elif np.isfinite(data["vio"][i]).all():
             vio_innov = float(np.linalg.norm(data["vio"][i] - predicted))
@@ -167,9 +257,12 @@ def run_fusion_3d(data: dict[str, np.ndarray]) -> tuple[np.ndarray, dict[str, in
     return fused, dict(decisions)
 
 
-def evaluate_run(data: dict[str, np.ndarray]) -> dict[str, object]:
+def evaluate_run(
+    data: dict[str, np.ndarray],
+    reliability_models: dict[str, object] | None = None,
+) -> dict[str, object]:
     truth = data["truth"]
-    fused, decisions = run_fusion(data)
+    fused, decisions = run_fusion(data, reliability_models=reliability_models)
     return {
         "rmse_fused_m": rmse(fused, truth),
         "rmse_gnss_m": rmse(data["gnss"], truth),
@@ -181,9 +274,11 @@ def evaluate_run(data: dict[str, np.ndarray]) -> dict[str, object]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, required=True)
+    parser.add_argument("--model", type=Path)
     args = parser.parse_args()
     loaded = np.load(args.input, allow_pickle=False)
-    metrics = evaluate_run({key: loaded[key] for key in loaded.files})
+    reliability_models = load_models(str(args.model)) if args.model else None
+    metrics = evaluate_run({key: loaded[key] for key in loaded.files}, reliability_models)
     for key, value in metrics.items():
         print(f"{key}: {value}")
 
