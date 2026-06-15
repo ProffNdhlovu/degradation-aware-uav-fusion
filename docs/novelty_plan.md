@@ -25,24 +25,25 @@ the interpretable safety rules.
 
 ## Current Result
 
-The learned residual policy is close to the rule baseline but does not yet outperform
-it on the three downloaded transition sequences:
+After downloading all available sensor archives and converting 26 flight sequences,
+the learned VIO reliability layer is approximately tied with the rule baseline:
 
-- Rule mean RMSE: about `12.06 m`.
-- Learned residual mean RMSE: about `12.42 m`.
+- Rule mean RMSE: about `7.16 m`.
+- Learned residual mean RMSE: about `7.15 m`.
 
-This is a useful research result: with only three transition sequences and proxy
-features, the learned model is not yet sufficiently general. The code now supports
-the experiment needed to improve it.
+This is a useful research result: with more data, the learned layer becomes safe and
+slightly improves aggregate RMSE, but the improvement is still too small to be the
+main claim by itself. Many Mars sequences lack usable VIO, so the next gain must
+come from stronger temporal features, calibrated UWB range fusion, and better IMU
+frame handling.
 
 ## Next Research Steps
 
-1. Download more INSANE sequences, especially indoor, outdoor, and Mars traverses.
-2. Train on many more sequences and keep transition sequences as held-out tests.
-3. Add calibrated UWB range fusion using anchor/tag positions.
-4. Add attitude-compensated IMU propagation instead of conservative acceleration cues.
-5. Replace logistic regression with a temporal reliability model over 1-3 seconds.
-6. Report ablations:
+1. Add calibrated UWB range fusion using anchor/tag positions.
+2. Add attitude-compensated IMU propagation instead of conservative acceleration cues.
+3. Replace logistic regression with a temporal reliability model over 1-3 seconds.
+4. Add image-derived visual-quality features once camera archives are used.
+5. Report ablations:
    - fixed covariance EKF,
    - rule-only adaptive EKF,
    - learned-only reliability,
@@ -58,4 +59,3 @@ solves degradation. The stronger framing is:
 > reliability-ablation framework for cross-domain UAV navigation. Initial results
 > show strong gains from degradation-aware gating and reveal the data requirements
 > for learned reliability to generalize across transition domains.
-

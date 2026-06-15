@@ -33,6 +33,10 @@ def interp_columns(source: dict[str, np.ndarray], t: np.ndarray, names: list[str
     return np.column_stack([np.interp(t, source_t, source[name]) for name in names])
 
 
+def in_time_range(source: dict[str, np.ndarray], t: np.ndarray) -> np.ndarray:
+    return (t >= source["t"][0]) & (t <= source["t"][-1])
+
+
 def align_similarity_2d(source_xy: np.ndarray, target_xy: np.ndarray) -> np.ndarray:
     """Align odometry into the ground-truth XY frame using a 2D similarity fit."""
 
@@ -106,32 +110,61 @@ def finite_difference_velocity(points: np.ndarray, t: np.ndarray) -> tuple[np.nd
     return velocity, velocity_var
 
 
+def read_ground_truth(sequence_dir: Path) -> dict[str, np.ndarray]:
+    candidates = [
+        sequence_dir / "ground_truth" / "ground_truth_8hz.csv",
+        sequence_dir / "mocap_vehicle_data.csv",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return read_numeric_csv(candidate)
+    raise FileNotFoundError(f"no ground truth file found under {sequence_dir}")
+
+
 def load_transition_sequence(sequence_dir: Path, align_seconds: float = 10.0) -> dict[str, np.ndarray]:
-    truth = read_numeric_csv(sequence_dir / "ground_truth" / "ground_truth_8hz.csv")
+    truth = read_ground_truth(sequence_dir)
     gnss = read_numeric_csv(sequence_dir / "px4_gps.csv")
-    vio = read_numeric_csv(sequence_dir / "rs_odom.csv")
+    vio_path = sequence_dir / "rs_odom.csv"
+    vio = read_numeric_csv(vio_path) if vio_path.exists() else None
     imu = read_numeric_csv(sequence_dir / "px4_imu.csv")
     lidar = read_numeric_csv(sequence_dir / "lrf_range.csv")
     uwb_path = sequence_dir / "uwb_range.csv"
     uwb = read_numeric_csv(uwb_path) if uwb_path.exists() else None
 
-    start = max(truth["t"][0], gnss["t"][0], vio["t"][0], imu["t"][0], lidar["t"][0])
-    end = min(truth["t"][-1], gnss["t"][-1], vio["t"][-1], imu["t"][-1], lidar["t"][-1])
-    keep = (truth["t"] >= start) & (truth["t"] <= end)
-    t_abs = truth["t"][keep]
+    start = truth["t"][0]
+    end = truth["t"][-1]
+    t_abs = np.arange(start, end, 0.125)
+    if len(t_abs) == 0:
+        raise ValueError(f"empty time range for {sequence_dir}")
     t = t_abs - t_abs[0]
-    truth_xyz = np.column_stack([truth["p_x"][keep], truth["p_y"][keep], truth["p_z"][keep]])
+    truth_xyz = interp_columns(truth, t_abs, ["p_x", "p_y", "p_z"])
 
     gnss_xyz = interp_columns(gnss, t_abs, ["p_x", "p_y", "p_z"])
     gnss_cov = interp_columns(gnss, t_abs, ["cov_p_x", "cov_p_y", "cov_p_z"])
-    vio_xyz_raw = interp_columns(vio, t_abs, ["p_x", "p_y", "p_z"])
+    gnss_in_range = in_time_range(gnss, t_abs)
+    gnss_valid = (
+        gnss_in_range
+        & np.isfinite(gnss_xyz).all(axis=1)
+        & np.isfinite(gnss_cov).all(axis=1)
+        & (np.nanmax(gnss_cov, axis=1) < 1e6)
+        & (np.abs(np.interp(t_abs, gnss["t"], gnss.get("lat", np.ones_like(gnss["t"])))) > 1e-9)
+    )
+    gnss_xyz = np.where(gnss_valid[:, None], gnss_xyz, np.nan)
+    gnss_cov = np.where(gnss_valid[:, None], gnss_cov, np.inf)
+    if vio is not None:
+        vio_xyz_raw = interp_columns(vio, t_abs, ["p_x", "p_y", "p_z"])
+        vio_xyz_raw = np.where(in_time_range(vio, t_abs)[:, None], vio_xyz_raw, np.nan)
+    else:
+        vio_xyz_raw = np.full_like(truth_xyz, np.nan)
     accel_raw = interp_columns(imu, t_abs, ["a_x", "a_y", "a_z"])
+    accel_raw = np.where(in_time_range(imu, t_abs)[:, None], accel_raw, np.nan)
     bias_count = max(3, min(len(t_abs), round(align_seconds * 8)))
     imu_bias = np.nanmean(accel_raw[:bias_count], axis=0)
+    imu_bias = np.nan_to_num(imu_bias, nan=0.0)
     # The PX4 accelerometer is not guaranteed to be expressed in the world frame here.
     # Use it conservatively: remove the initial gravity/bias vector and keep only a
     # small clipped motion cue for propagation.
-    imu_accel = np.clip((accel_raw - imu_bias) * 0.05, -1.0, 1.0)
+    imu_accel = np.clip((np.nan_to_num(accel_raw, nan=0.0) - imu_bias) * 0.05, -1.0, 1.0)
     imu_accel[:, 2] = 0.0
 
     align_count = int(max(8, min(len(t_abs), round(align_seconds * 8))))
@@ -148,7 +181,9 @@ def load_transition_sequence(sequence_dir: Path, align_seconds: float = 10.0) ->
     vio_velocity_var[:, 2] = 1e6
 
     range_m = np.interp(t_abs, lidar["t"], lidar["range"])
+    range_m = np.where(in_time_range(lidar, t_abs), range_m, np.nan)
     vio_gnss_disagreement = np.linalg.norm(vio_xyz - gnss_xyz, axis=1)
+    vio_gnss_disagreement = np.nan_to_num(vio_gnss_disagreement, nan=50.0, posinf=50.0)
     finite_vio = np.isfinite(vio_xyz).all(axis=1)
     feature_proxy = np.where(
         finite_vio,
@@ -167,7 +202,7 @@ def load_transition_sequence(sequence_dir: Path, align_seconds: float = 10.0) ->
     )
     vio_position_var = np.repeat(vio_position_var, 3, axis=1)
     hdop_proxy = np.sqrt(np.maximum(np.mean(gnss_cov, axis=1), 0.0)) / 2.0
-    fix_ok = np.isfinite(gnss_xyz).all(axis=1) & np.isfinite(gnss_cov).all(axis=1)
+    fix_ok = gnss_valid
     sats_proxy = np.where(fix_ok, 10, 0)
     if uwb is not None:
         valid_columns = [name for name in uwb if name.startswith("valid_")]

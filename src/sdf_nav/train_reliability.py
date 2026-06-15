@@ -90,13 +90,21 @@ def benchmark(data_sets: list[dict[str, np.ndarray]], names: list[str]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--sequence", type=Path, action="append", required=True)
+    parser.add_argument("--sequence", type=Path, action="append", default=[])
+    parser.add_argument("--sequence-root", type=Path)
+    parser.add_argument("--sequence-glob", default="*_aligned.npz")
     parser.add_argument("--model-out", type=Path, default=Path("work/reliability_model.npz"))
     parser.add_argument("--report-out", type=Path, default=Path("outputs/reliability_benchmark.md"))
     args = parser.parse_args()
 
-    data_sets = [load_dataset(path) for path in args.sequence]
-    names = [path.stem.replace("_aligned", "") for path in args.sequence]
+    sequence_paths = list(args.sequence)
+    if args.sequence_root is not None:
+        sequence_paths.extend(sorted(args.sequence_root.glob(args.sequence_glob)))
+    if not sequence_paths:
+        raise SystemExit("provide --sequence or --sequence-root")
+
+    data_sets = [load_dataset(path) for path in sequence_paths]
+    names = [path.stem.replace("_aligned", "") for path in sequence_paths]
     models = fit_reliability_models(data_sets)
     args.model_out.parent.mkdir(parents=True, exist_ok=True)
     save_models(str(args.model_out), models)
@@ -113,4 +121,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -55,10 +55,9 @@ def hybrid_decision(
     """Use learned reliability only as a high-confidence residual correction."""
 
     if sensor == "gnss":
-        if learned_reliability < 0.30:
-            return "downweight", min(6.0, max(rule_scale, 1.0 / max(learned_reliability, 0.20) ** 2)), "hybrid_learned_weak"
-        if learned_reliability > 0.85 and rule_action != "reject":
-            return "use", min(rule_scale, 1.5), "hybrid_learned_strong"
+        # Keep GNSS rule-governed because it is often the only absolute reference
+        # in outdoor and Mars sequences. Learned GNSS reliability is still reported
+        # in benchmarks, but it should not remove the absolute correction.
         return rule_action, rule_scale, "hybrid_rule"
 
     if sensor == "vio":

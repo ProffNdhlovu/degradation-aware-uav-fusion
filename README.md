@@ -64,11 +64,10 @@ To train and benchmark the learned reliability layer:
 
 ```bash
 python3 -m sdf_nav.train_reliability \
-  --sequence work/transition_1_aligned.npz \
-  --sequence work/transition_2_aligned.npz \
-  --sequence work/transition_3_aligned.npz \
-  --model-out work/reliability_model.npz \
-  --report-out outputs/reliability_benchmark.md
+  --sequence-root work \
+  --sequence-glob "*_aligned.npz" \
+  --model-out work/reliability_model_all.npz \
+  --report-out outputs/reliability_benchmark_all.md
 ```
 
 ## Project Layout
@@ -97,7 +96,7 @@ For downloaded INSANE transition sensor data, the 3D path uses:
 ## Research Direction
 
 See `docs/novelty_plan.md` for the current paper-oriented contribution plan and
-`outputs/reliability_benchmark.md` for the learned reliability ablation.
+`outputs/reliability_benchmark_all.md` for the expanded learned reliability ablation.
 - `docs/architecture.md`: recommended model roadmap for INSANE.
 
 ## INSANE Dataset Integration Plan
