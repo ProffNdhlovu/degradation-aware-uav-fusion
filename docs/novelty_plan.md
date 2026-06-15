@@ -26,14 +26,14 @@ the interpretable safety rules.
 ## Current Result
 
 After downloading all available sensor archives and converting 26 flight sequences,
-the learned VIO reliability layer is approximately tied with the rule baseline:
+the learned VIO reliability layer is close to the rule baseline:
 
-- Rule mean RMSE: about `7.16 m`.
-- Learned residual mean RMSE: about `7.15 m`.
+- Rule mean RMSE: about `5.47 m`.
+- Learned residual mean RMSE: about `5.54 m`.
 
-This is a useful research result: with more data, the learned layer becomes safe and
-slightly improves aggregate RMSE, but the improvement is still too small to be the
-main claim by itself. Many Mars sequences lack usable VIO, so the next gain must
+This is a useful research result: with more data, the learned layer becomes mostly
+safe, but it still does not beat the corrected rule baseline. Many Mars sequences
+lack usable VIO, so the next gain must
 come from stronger temporal features, calibrated UWB range fusion, and better IMU
 frame handling.
 

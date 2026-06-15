@@ -148,35 +148,44 @@ def run_fusion_3d(
         dt = 0.125 if i == 0 else t[i] - t[i - 1]
         kf.predict(float(dt), data["imu_accel"][i])
         predicted = kf.position
+        gnss_cross_disagreement = False
 
         if np.isfinite(data["gnss"][i]).all():
             gnss_innov = float(np.linalg.norm(data["gnss"][i] - predicted))
-            quality = gnss_quality(
-                float(data["hdop"][i]),
-                int(data["sats"][i]),
-                bool(data["fix_ok"][i]),
-                gnss_innov,
-            )
-            _, rule_decision = policy.gate_measurement(
-                Measurement(data["gnss"][i, :2], np.eye(2), "gnss"),
-                quality,
-            )
-            if reliability_models and "gnss" in reliability_models:
-                reliability = float(reliability_models["gnss"].predict_proba(learned_features["gnss"][i : i + 1])[0])
-                action, covariance_scale, reason = hybrid_decision(
-                    "gnss",
-                    rule_decision.action,
-                    rule_decision.covariance_scale,
-                    reliability,
+            reject_gnss_for_disagreement = False
+            if np.isfinite(data["vio"][i]).all():
+                gnss_vio_gap = float(np.linalg.norm(data["gnss"][i] - data["vio"][i]))
+                if gnss_vio_gap > 20.0:
+                    decisions["gnss:reject:cross_sensor_disagreement"] += 1
+                    reject_gnss_for_disagreement = True
+                    gnss_cross_disagreement = True
+            if not reject_gnss_for_disagreement:
+                quality = gnss_quality(
+                    float(data["hdop"][i]),
+                    int(data["sats"][i]),
+                    bool(data["fix_ok"][i]),
+                    gnss_innov,
                 )
-                decisions[f"gnss:{action}:{reason}"] += 1
-            else:
-                action = rule_decision.action
-                covariance_scale = rule_decision.covariance_scale
-                decisions[f"{rule_decision.sensor}:{rule_decision.action}:{rule_decision.reason}"] += 1
-            if action != "reject":
-                r = np.diag(np.clip(data["gnss_cov"][i], 0.25, 16.0)) * covariance_scale
-                kf.update_position(data["gnss"][i], r)
+                _, rule_decision = policy.gate_measurement(
+                    Measurement(data["gnss"][i, :2], np.eye(2), "gnss"),
+                    quality,
+                )
+                if reliability_models and "gnss" in reliability_models:
+                    reliability = float(reliability_models["gnss"].predict_proba(learned_features["gnss"][i : i + 1])[0])
+                    action, covariance_scale, reason = hybrid_decision(
+                        "gnss",
+                        rule_decision.action,
+                        rule_decision.covariance_scale,
+                        reliability,
+                    )
+                    decisions[f"gnss:{action}:{reason}"] += 1
+                else:
+                    action = rule_decision.action
+                    covariance_scale = rule_decision.covariance_scale
+                    decisions[f"{rule_decision.sensor}:{rule_decision.action}:{rule_decision.reason}"] += 1
+                if action != "reject":
+                    r = np.diag(np.clip(data["gnss_cov"][i], 0.25, 16.0)) * covariance_scale
+                    kf.update_position(data["gnss"][i], r)
         else:
             decisions["gnss:reject:missing"] += 1
 
@@ -215,7 +224,8 @@ def run_fusion_3d(
 
                 if np.isfinite(data["vio"][i]).all():
                     position_innov = float(np.linalg.norm(data["vio"][i, :2] - kf.position[:2]))
-                    if position_innov > 15.0:
+                    position_gate = 60.0 if gnss_cross_disagreement else 15.0
+                    if position_innov > position_gate:
                         decisions["vio:reject:position_innovation"] += 1
                         fused[i] = kf.position
                         continue

@@ -110,6 +110,18 @@ def finite_difference_velocity(points: np.ndarray, t: np.ndarray) -> tuple[np.nd
     return velocity, velocity_var
 
 
+def first_finite_window(points: np.ndarray, target: np.ndarray, desired_count: int) -> tuple[np.ndarray, np.ndarray]:
+    finite = np.isfinite(points).all(axis=1) & np.isfinite(target).all(axis=1)
+    indices = np.flatnonzero(finite)
+    if len(indices) == 0:
+        return points[:0], target[:0]
+    start = indices[0]
+    stop = min(len(points), start + desired_count)
+    window = np.arange(start, stop)
+    window = window[finite[window]]
+    return points[window], target[window]
+
+
 def read_ground_truth(sequence_dir: Path) -> dict[str, np.ndarray]:
     candidates = [
         sequence_dir / "ground_truth" / "ground_truth_8hz.csv",
@@ -168,12 +180,8 @@ def load_transition_sequence(sequence_dir: Path, align_seconds: float = 10.0) ->
     imu_accel[:, 2] = 0.0
 
     align_count = int(max(8, min(len(t_abs), round(align_seconds * 8))))
-    src_fit = vio_xyz_raw[:align_count]
-    tgt_fit = truth_xyz[:align_count]
-    finite_fit = np.isfinite(src_fit).all(axis=1) & np.isfinite(tgt_fit).all(axis=1)
-    if np.count_nonzero(finite_fit) >= 3:
-        src_fit = src_fit[finite_fit]
-        tgt_fit = tgt_fit[finite_fit]
+    src_fit, tgt_fit = first_finite_window(vio_xyz_raw, truth_xyz, align_count)
+    if len(src_fit) >= 3:
         vio_xyz = align_similarity_nd(vio_xyz_raw, truth_xyz)
     else:
         vio_xyz = np.full_like(vio_xyz_raw, np.nan)
