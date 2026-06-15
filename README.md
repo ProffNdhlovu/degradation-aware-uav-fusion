@@ -97,6 +97,7 @@ For downloaded INSANE transition sensor data, the 3D path uses:
 
 See `docs/novelty_plan.md` for the current paper-oriented contribution plan and
 `outputs/reliability_benchmark_all.md` for the expanded learned reliability ablation.
+The visual summary is available at `outputs/reliability_benchmark_all.svg`.
 - `docs/architecture.md`: recommended model roadmap for INSANE.
 
 ## INSANE Dataset Integration Plan

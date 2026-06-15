@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="720" viewBox="0 0 1100 720">
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <text x="56" y="48" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#111827">Expanded INSANE Reliability Benchmark</text>
+  <text x="56" y="78" font-family="Arial, sans-serif" font-size="15" fill="#4b5563">Leave-one-sequence-out evaluation over 26 sensor sequences. Lower RMSE is better.</text>
+
+  <g font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <text x="56" y="130" font-size="18" font-weight="700">Mean RMSE</text>
+    <rect x="56" y="154" width="358" height="42" fill="#2563eb" opacity="0.88"/>
+    <rect x="56" y="214" width="357" height="42" fill="#16a34a" opacity="0.88"/>
+    <text x="430" y="181" font-size="18">Rule baseline: 7.16 m</text>
+    <text x="430" y="241" font-size="18">Learned reliability: 7.15 m</text>
+  </g>
+
+  <line x1="56" y1="306" x2="1040" y2="306" stroke="#e5e7eb"/>
+  <text x="56" y="344" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#111827">Selected Sequences</text>
+  <text x="56" y="370" font-family="Arial, sans-serif" font-size="13" fill="#6b7280">Blue = rule baseline, green = learned reliability. Values are fused RMSE in meters.</text>
+
+  <g font-family="Arial, sans-serif" font-size="13" fill="#111827">
+    <text x="56" y="419">indoor_1</text>
+    <rect x="170" y="400" width="36" height="18" fill="#2563eb"/>
+    <rect x="170" y="424" width="35" height="18" fill="#16a34a"/>
+    <text x="218" y="415">3.60</text><text x="218" y="439">3.54</text>
+
+    <text x="56" y="479">indoor_3</text>
+    <rect x="170" y="460" width="7" height="18" fill="#2563eb"/>
+    <rect x="170" y="484" width="6" height="18" fill="#16a34a"/>
+    <text x="190" y="475">0.70</text><text x="190" y="499">0.63</text>
+
+    <text x="56" y="539">mars_4</text>
+    <rect x="170" y="520" width="53" height="18" fill="#2563eb"/>
+    <rect x="170" y="544" width="50" height="18" fill="#16a34a"/>
+    <text x="236" y="535">5.34</text><text x="236" y="559">5.01</text>
+
+    <text x="56" y="599">outdoor_1</text>
+    <rect x="170" y="580" width="85" height="18" fill="#2563eb"/>
+    <rect x="170" y="604" width="85" height="18" fill="#16a34a"/>
+    <text x="268" y="595">8.47</text><text x="268" y="619">8.51</text>
+
+    <text x="520" y="419">transition_1</text>
+    <rect x="640" y="400" width="12" height="18" fill="#2563eb"/>
+    <rect x="640" y="424" width="13" height="18" fill="#16a34a"/>
+    <text x="666" y="415">1.18</text><text x="666" y="439">1.27</text>
+
+    <text x="520" y="479">transition_2</text>
+    <rect x="640" y="460" width="79" height="18" fill="#2563eb"/>
+    <rect x="640" y="484" width="79" height="18" fill="#16a34a"/>
+    <text x="732" y="475">7.92</text><text x="732" y="499">7.92</text>
+
+    <text x="520" y="539">transition_3</text>
+    <rect x="640" y="520" width="358" height="18" fill="#2563eb"/>
+    <rect x="640" y="544" width="358" height="18" fill="#16a34a"/>
+    <text x="1010" y="535">71.59</text><text x="1010" y="559">71.59</text>
+  </g>
+
+  <g font-family="Arial, sans-serif" font-size="14" fill="#111827">
+    <rect x="56" y="656" width="16" height="16" fill="#2563eb"/><text x="82" y="669">Rule-based degradation-aware fusion</text>
+    <rect x="360" y="656" width="16" height="16" fill="#16a34a"/><text x="386" y="669">Hybrid learned reliability fusion</text>
+  </g>
+</svg>
